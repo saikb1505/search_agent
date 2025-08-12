@@ -4,9 +4,17 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from agent.agent_base import BaseAgent
+from api.salesql_routes import router as salesql_router  # <-- NEW
 
 load_dotenv()
-app = FastAPI()
+
+app = FastAPI(
+    title="Agent Vikram API",
+    version="0.2.0",
+    openapi_tags=[
+        {"name": "SalesQL", "description": "Enrich LinkedIn profiles using SalesQL"},
+    ],
+)
 
 class AgentInput(BaseModel):
     user_input: str
@@ -20,6 +28,9 @@ async def agentic_query_generator(payload: AgentInput):
         max_results_per_query=payload.max_results_per_query,
     )
     return result
+
+# NEW: mount SalesQL routes at /salesql/...
+app.include_router(salesql_router)
 
 @app.get("/health")
 def health():

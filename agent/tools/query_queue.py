@@ -15,6 +15,7 @@ async def enqueue_queries(queries: list[str]):
                 (q,)
             )
     conn.close()
+
 async def get_pending_queries(limit: int = 5):
   conn = await get_db_connection()
   async with conn.cursor(aiomysql.DictCursor) as cursor:

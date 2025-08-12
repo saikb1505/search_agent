@@ -22,7 +22,7 @@ async def save_search_results(search_id: int, query: str, results: list[dict]):
                     query,
                     item.get("title"),
                     item.get("link"),
-                    'item.get("snippet")',
+                    item.get("snippet")
                 ),
             )
     conn.close()
