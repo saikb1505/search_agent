@@ -3,7 +3,7 @@ from agent.tools.serper_linkedin_search import serper_linkedin_search
 from agent.tools.save_search_results import save_search_results
 from agent.tools.query_queue import get_pending_queries, mark_query_done, mark_query_failed
 
-async def run_linkedin_search_worker(max_results_per_query: int = 20) -> dict:
+async def run_linkedin_search_worker(max_results_per_query: int = 100) -> dict:
     """
     Processes pending queries:
       - pulls from search_query_queue
