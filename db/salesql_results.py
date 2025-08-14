@@ -212,3 +212,50 @@ ON DUPLICATE KEY UPDATE
     async with conn.cursor() as cursor:
         await cursor.execute(sql_insert, params)
     conn.close()
+
+async def fetch_salesql_people(search_id: int, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Fetch people enriched by SalesQL for a given search_id.
+    - Parses JSON columns (emails_json, phones_json, raw_json) into Python objects.
+    - Supports basic pagination via limit/offset.
+    """
+    sql = f"""
+        SELECT
+            id, search_id, google_result_id,
+            person_uuid, full_name, first_name, last_name, linkedin_url, title, headline,
+            person_industry, image_url,
+            person_city, person_state, person_country_code, person_country, person_region,
+            org_uuid, org_name, org_website, org_domain, org_linkedin_url, org_employees, org_industry,
+            org_city, org_state, org_country_code, org_country, org_region,
+            emails_json, phones_json, raw_json,
+            created_at
+        FROM {TABLE_SALESQL_RESULTS}
+        WHERE search_id = %s
+        ORDER BY id ASC
+        LIMIT %s OFFSET %s
+    """
+
+    conn = await get_db_connection()
+    try:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(sql, (int(search_id), int(limit), int(offset)))
+            rows = await cur.fetchall()
+
+        # Parse JSON columns to Python objects
+        for r in rows:
+            for key in ("emails_json", "phones_json", "raw_json"):
+                val = r.get(key)
+                if isinstance(val, (bytes, bytearray)):
+                    try:
+                        val = val.decode("utf-8")
+                    except Exception:
+                        pass
+                if isinstance(val, str):
+                    try:
+                        r[key] = _json.loads(val)
+                    except Exception:
+                        # keep original if not valid JSON
+                        r[key] = val
+        return rows
+    finally:
+        conn.close()

@@ -1,72 +1,101 @@
 # api/salesql_routes.py
-from typing import Optional, Dict, Any
-from fastapi import APIRouter, HTTPException
-import asyncio
+from typing import Any, Dict, List, Optional
 
-from db.salesql_results import (
-    get_linkedin_urls_for_search_id,
-    get_existing_linkedin_urls,
-    save_salesql_person,
-)
-from services.salesql_client import enrich_person_by_linkedin_url, SalesQLError
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
+
+from db.salesql_results import fetch_salesql_people
+from db.async_mysql import get_db_connection
 
 router = APIRouter(prefix="/salesql", tags=["SalesQL"])
 
 
-@router.post("/enrich/{search_id}")
-async def enrich_salesql_for_search(search_id: int, max_profiles: Optional[int] = None) -> Dict[str, Any]:
+# ---- Pydantic response models ----
+
+class SalesQLPeopleResponse(BaseModel):
+    search_id: int = Field(..., description="Echo of the requested search_id")
+    count: int = Field(..., description="Number of rows returned in this page (not the total)")
+    limit: int = Field(..., description="Page size used for the query")
+    offset: int = Field(..., description="Offset used for the query")
+    items: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Array of people rows (JSON columns already parsed)",
+    )
+
+
+class SalesQLPeopleCountResponse(BaseModel):
+    search_id: int
+    total: int = Field(..., description="Total number of rows for this search_id")
+
+
+# ---- Routes ----
+
+@router.get(
+    "/people",
+    summary="List SalesQL-enriched people by search_id",
+    response_model=SalesQLPeopleResponse,
+)
+async def get_salesql_people(
+    search_id: int = Query(..., description="search_id to filter rows"),
+    limit: int = Query(100, ge=1, le=500, description="Max rows to return (1–500)"),
+    offset: int = Query(0, ge=0, description="Offset for pagination"),
+) -> SalesQLPeopleResponse:
     """
-    For the given search_id, read LinkedIn profile URLs from google_search_results,
-    call SalesQL enrichment API for each, and save to salesql_enriched_people.
-    Skips URLs already enriched for this search_id.
+    Returns rows from `salesql_enriched_people` for the given `search_id`.
+
+    Notes:
+    - Parses JSON columns (`emails_json`, `phones_json`, `raw_json`) into Python objects.
+    - Sorted by `id ASC` for stable pagination.
     """
-    rows = await get_linkedin_urls_for_search_id(search_id)
-    found = len(rows)
+    try:
+        items = await fetch_salesql_people(search_id=search_id, limit=limit, offset=offset)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch people: {e}")
 
-    if found == 0:
-        # Not a hard error, but signal nothing to do
-        return {
-            "search_id": search_id,
-            "found_urls": 0,
-            "already_enriched": 0,
-            "enriched": 0,
-            "not_found": 0,
-            "failed": 0,
-            "failures": [],
-        }
+    return SalesQLPeopleResponse(
+        search_id=search_id,
+        count=len(items),
+        limit=limit,
+        offset=offset,
+        items=items,
+    )
 
-    already = await get_existing_linkedin_urls(search_id)
-    to_process = [r for r in rows if r["link"] not in already]
 
-    if max_profiles is not None and max_profiles > 0:
-        to_process = to_process[:max_profiles]
+@router.get(
+    "/people/count",
+    summary="Get total count of SalesQL-enriched people for a search_id",
+    response_model=SalesQLPeopleCountResponse,
+)
+async def get_salesql_people_count(
+    search_id: int = Query(..., description="search_id to count rows for")
+) -> SalesQLPeopleCountResponse:
+    """
+    Returns the total number of rows in `salesql_enriched_people` matching the given `search_id`.
+    Useful for building pagination UIs without fetching all rows.
+    """
+    sql = """
+        SELECT COUNT(*) AS total
+        FROM salesql_enriched_people
+        WHERE search_id = %s
+    """
 
-    summary = {
-        "search_id": search_id,
-        "found_urls": found,
-        "already_enriched": found - len(to_process),
-        "enriched": 0,
-        "not_found": 0,
-        "failed": 0,
-        "failures": [],
-    }
+    conn = await get_db_connection()
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute(sql, (int(search_id),))
+            row = await cur.fetchone()
+            if not row:
+                total = 0
+            else:
+                # aiomysql default cursor returns tuples unless DictCursor is used
+                # handle both cases safely
+                if isinstance(row, dict) and "total" in row:
+                    total = int(row["total"])
+                else:
+                    total = int(row[0])  # first column
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch count: {e}")
+    finally:
+        conn.close()
 
-    for r in to_process:
-        url = r["link"]
-        try:
-            payload = await enrich_person_by_linkedin_url(url)
-            if payload.get("_not_found"):
-                summary["not_found"] += 1
-                continue
-            await save_salesql_person(search_id, r["id"], url, payload)
-            summary["enriched"] += 1
-        except SalesQLError as e:
-            summary["failed"] += 1
-            summary["failures"].append({"linkedin_url": url, "error": str(e)})
-        except Exception as e:
-            summary["failed"] += 1
-            summary["failures"].append({"linkedin_url": url, "error": f"Unexpected: {e}"})
-        # Gentle rate limiting
-        await asyncio.sleep(0.25)
-
-    return summary
+    return SalesQLPeopleCountResponse(search_id=search_id, total=total)

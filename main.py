@@ -4,7 +4,9 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from agent.agent_base import BaseAgent
-from api.salesql_routes import router as salesql_router  # <-- NEW
+from api.salesql_routes import router as salesql_router
+from api.people_search_routes import router as people_search_router
+
 
 load_dotenv()
 
@@ -31,6 +33,8 @@ async def agentic_query_generator(payload: AgentInput):
 
 # NEW: mount SalesQL routes at /salesql/...
 app.include_router(salesql_router)
+
+app.include_router(people_search_router)
 
 @app.get("/health")
 def health():
