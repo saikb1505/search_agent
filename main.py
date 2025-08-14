@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 
 from agent.agent_base import BaseAgent
 from api.salesql_routes import router as salesql_router  # <-- NEW
+from api.people_routes import router as people_router
 
 load_dotenv()
 
@@ -15,6 +16,8 @@ app = FastAPI(
         {"name": "SalesQL", "description": "Enrich LinkedIn profiles using SalesQL"},
     ],
 )
+
+app.include_router(people_router, prefix="/api")
 
 class AgentInput(BaseModel):
     user_input: str
