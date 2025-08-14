@@ -2,7 +2,7 @@ import os
 import json
 from openai import OpenAI
 from dotenv import load_dotenv
-from agent.tools.query_queue import enqueue_queries_with_parsed
+from agent.tools.query_queue import enqueue_queries
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -51,11 +51,6 @@ class QueryGeneratorAgent:
         # ✅ Save to DB
         queries = [item["query"] for item in queries_data if "query" in item]
         if queries:
-            await enqueue_queries_with_parsed(
-              queries=queries,
-              tech_stack=self.tech_stack,
-              locations=self.locations,
-              parser_version="v1",
-            )
+            await enqueue_queries(queries)
 
         return queries_data

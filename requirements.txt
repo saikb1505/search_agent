@@ -1,6 +1,5 @@
 fastapi
 uvicorn[standard]
-openai
 httpx
 aiomysql
 python-dotenv
